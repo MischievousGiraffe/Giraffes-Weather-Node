@@ -53,6 +53,40 @@ function formatZipcode(input: string): string {
   return `${trimmed},US`;
 }
 
+// Helper function to calculate location priority for autocomplete suggestions
+function calculateLocationPriority(location: any): number {
+  let priority = 0;
+  
+  // Prioritize major countries
+  const majorCountries = ['US', 'CA', 'GB', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'JP', 'KR', 'IN', 'CN', 'BR', 'MX', 'AR'];
+  if (majorCountries.includes(location.country)) {
+    priority += 10;
+  }
+  
+  // Boost US cities further
+  if (location.country === 'US') {
+    priority += 5;
+  }
+  
+  // Prioritize cities with states (often indicates larger cities)
+  if (location.state) {
+    priority += 5;
+  }
+  
+  // Boost based on name length (longer names often indicate established cities)
+  if (location.name.length >= 5) {
+    priority += 3;
+  }
+  
+  // Boost well-known city patterns
+  const wellKnownCities = /\b(new york|los angeles|chicago|houston|phoenix|philadelphia|san antonio|san diego|dallas|san jose|austin|jacksonville|fort worth|columbus|charlotte|san francisco|indianapolis|seattle|denver|washington|boston|el paso|detroit|nashville|portland|oklahoma city|las vegas|louisville|baltimore|milwaukee|albuquerque|tucson|fresno|sacramento|kansas city|mesa|atlanta|omaha|colorado springs|raleigh|miami|oakland|minneapolis|tulsa|cleveland|wichita|arlington|tampa|bakersfield|new orleans|honolulu|anaheim|santa ana|corpus christi|riverside|lexington|stockton|toledo|st. paul|newark|greensboro|buffalo|plano|lincoln|henderson|fort wayne|jersey city|st. petersburg|chula vista|norfolk|orlando|chandler|laredo|madison|lubbock|winston salem|garland|glendale|hialeah|reno|baton rouge|irvine|chesapeake|irving|scottsdale|north las vegas|fremont|gilbert|san bernardino|boise|birmingham)\b/i;
+  if (wellKnownCities.test(location.name)) {
+    priority += 15;
+  }
+  
+  return priority;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const API_KEY = process.env.OPENWEATHER_API_KEY || process.env.VITE_OPENWEATHER_API_KEY || "";
   
@@ -71,7 +105,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Use OpenWeatherMap geocoding API for city suggestions
       const geoResponse = await fetch(
-        `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=5&appid=${API_KEY}`
+        `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=10&appid=${API_KEY}`
       );
       
       if (!geoResponse.ok) {
@@ -81,13 +115,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const geoData = await geoResponse.json();
       
-      const suggestions: AutocompleteResponse['suggestions'] = geoData.map((location: any) => ({
-        name: location.name,
-        country: location.country,
-        state: location.state || undefined,
-        lat: location.lat,
-        lon: location.lon,
-      }));
+      // Filter and improve suggestion quality
+      const filteredSuggestions = geoData
+        .filter((location: any) => {
+          // Filter out very short names (often incomplete or too generic)
+          if (location.name.length < 3) return false;
+          
+          // Filter out names that are just numbers or weird characters
+          if (/^[\d\W]+$/.test(location.name)) return false;
+          
+          // Prioritize major countries that typically have good weather data
+          const majorCountries = ['US', 'CA', 'GB', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'JP', 'KR', 'IN', 'CN', 'BR', 'MX', 'AR'];
+          const isFromMajorCountry = majorCountries.includes(location.country);
+          
+          // Filter out places that seem too obscure (very specific local names)
+          const hasObscureWords = /\b(railway|station|airport|hospital|school|farm|ranch|creek|river|road|street|avenue|lane|district|ward|quarter|sector|zone|area|region|subdivision|hamlet|village|settlement|camp|base|facility|center|centre)\b/i.test(location.name);
+          if (hasObscureWords) return false;
+          
+          return true;
+        })
+        .map((location: any) => ({
+          name: location.name,
+          country: location.country,
+          state: location.state || undefined,
+          lat: location.lat,
+          lon: location.lon,
+          // Add scoring for prioritization
+          _priority: calculateLocationPriority(location)
+        }))
+        .sort((a: any, b: any) => b._priority - a._priority);
+
+      // Remove duplicates based on name and country
+      const uniqueSuggestions = filteredSuggestions.filter((location: any, index: number, arr: any[]) => {
+        const key = `${location.name.toLowerCase()}-${location.country}`;
+        return arr.findIndex((l: any) => `${l.name.toLowerCase()}-${l.country}` === key) === index;
+      });
+
+      // Remove the priority field and limit to 5 results
+      const suggestions: AutocompleteResponse['suggestions'] = uniqueSuggestions
+        .slice(0, 5)
+        .map((location: any) => {
+          const { _priority, ...cleanLocation } = location;
+          return cleanLocation;
+        });
 
       res.json({ suggestions });
     } catch (error) {
