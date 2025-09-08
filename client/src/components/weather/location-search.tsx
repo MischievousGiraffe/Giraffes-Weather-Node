@@ -33,7 +33,7 @@ export default function LocationSearch({ onLocationSearch, onUseCurrentLocation,
             <div className="relative">
               <Input
                 type="text"
-                placeholder="Search for a city..."
+                placeholder="Search for a city or zipcode..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={handleKeyPress}
