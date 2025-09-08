@@ -3,6 +3,56 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { locationSearchSchema, coordinatesSchema, type WeatherData } from "@shared/schema";
 
+// Helper function to detect if input looks like a zipcode
+function isZipcodeFormat(input: string): boolean {
+  const trimmed = input.trim();
+  
+  // US zipcode patterns: 12345 or 12345-6789
+  const usZipPattern = /^\d{5}(-\d{4})?$/;
+  
+  // UK postcode pattern: SW1A 1AA
+  const ukPostcodePattern = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+  
+  // Canadian postal code: K1A 0A6
+  const canadaPostalPattern = /^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i;
+  
+  // General pattern for numeric zipcodes
+  const numericPattern = /^\d{4,6}$/;
+  
+  return usZipPattern.test(trimmed) || 
+         ukPostcodePattern.test(trimmed) || 
+         canadaPostalPattern.test(trimmed) || 
+         numericPattern.test(trimmed);
+}
+
+// Helper function to format zipcode for OpenWeatherMap API
+function formatZipcode(input: string): string {
+  const trimmed = input.trim();
+  
+  // If already has country code (format: "12345,US"), return as-is
+  if (trimmed.includes(',')) {
+    return trimmed;
+  }
+  
+  // US zipcode patterns
+  if (/^\d{5}(-\d{4})?$/.test(trimmed)) {
+    return `${trimmed},US`;
+  }
+  
+  // UK postcode
+  if (/^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i.test(trimmed)) {
+    return `${trimmed},GB`;
+  }
+  
+  // Canadian postal code
+  if (/^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i.test(trimmed)) {
+    return `${trimmed},CA`;
+  }
+  
+  // Default to US for numeric codes
+  return `${trimmed},US`;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   const API_KEY = process.env.OPENWEATHER_API_KEY || process.env.VITE_OPENWEATHER_API_KEY || "";
   
@@ -10,7 +60,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.warn("No OpenWeatherMap API key found. Set OPENWEATHER_API_KEY environment variable.");
   }
 
-  // Search weather by city name
+  // Search weather by city name or zipcode
   app.post("/api/weather/search", async (req, res) => {
     try {
       const { query } = locationSearchSchema.parse(req.body);
@@ -21,21 +71,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(cached);
       }
 
-      // Get coordinates from city name
-      const geoResponse = await fetch(
-        `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=1&appid=${API_KEY}`
-      );
+      // Detect if input is a zipcode and format accordingly
+      const isZipcode = isZipcodeFormat(query);
+      let geoUrl: string;
+      
+      if (isZipcode) {
+        // Format zipcode for API (add country code if not present)
+        const formattedZip = formatZipcode(query);
+        geoUrl = `https://api.openweathermap.org/geo/1.0/zip?zip=${encodeURIComponent(formattedZip)}&appid=${API_KEY}`;
+      } else {
+        // Regular city search
+        geoUrl = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=1&appid=${API_KEY}`;
+      }
+
+      const geoResponse = await fetch(geoUrl);
       
       if (!geoResponse.ok) {
         throw new Error("Failed to fetch location data");
       }
       
       const geoData = await geoResponse.json();
-      if (!geoData.length) {
-        return res.status(404).json({ message: "Location not found" });
+      
+      let lat: number, lon: number, name: string, country: string;
+      
+      if (isZipcode) {
+        // Zipcode API returns a single object
+        if (!geoData.lat || !geoData.lon) {
+          return res.status(404).json({ message: "Zipcode not found" });
+        }
+        lat = geoData.lat;
+        lon = geoData.lon;
+        name = geoData.name || "Unknown Location";
+        country = geoData.country || "";
+      } else {
+        // City search API returns an array
+        if (!geoData.length) {
+          return res.status(404).json({ message: "Location not found" });
+        }
+        const location = geoData[0];
+        lat = location.lat;
+        lon = location.lon;
+        name = location.name;
+        country = location.country;
       }
 
-      const { lat, lon, name, country } = geoData[0];
       const weatherData = await fetchWeatherData(lat, lon, name, country, API_KEY);
       
       await storage.setCachedWeatherData(cacheKey, weatherData);
