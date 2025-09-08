@@ -124,9 +124,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Filter out names that are just numbers or weird characters
           if (/^[\d\W]+$/.test(location.name)) return false;
           
+          // Be very strict about very short queries to avoid problematic results
+          if (query.length <= 3 && location.name.length <= 3) {
+            // Only allow well-known 3-letter city codes or major cities
+            const wellKnown3Letter = /^(NYC|LAX|SFO|DFW|ORD|JFK|LGA|BOS|ATL|DEN|SEA|LAS|MIA|PHX|CLT|MSP|DTW|PHL|BWI|DCA|IAD|SLC|PDX|SAN|TPA|STL|PIT|CLE|MCI|OAK|SNA|BUR|MDW|HOU|IAH|MSY|RDU|BNA|CVG|CMH|IND|MKE|BUF|ROC|SYR|ALB|BDL|PVD|BGR)$/i.test(location.name);
+            if (!wellKnown3Letter) return false;
+          }
+          
           // Prioritize major countries that typically have good weather data
-          const majorCountries = ['US', 'CA', 'GB', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'JP', 'KR', 'IN', 'CN', 'BR', 'MX', 'AR'];
+          const majorCountries = ['US', 'CA', 'GB', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'JP', 'KR', 'IN', 'CN', 'BR', 'MX', 'AR', 'RU', 'ZA', 'EG', 'NG', 'KE', 'MA', 'TH', 'VN', 'ID', 'MY', 'SG', 'PH', 'BD', 'PK', 'IR', 'TR', 'SA', 'AE', 'IL', 'JO', 'LB', 'SY', 'IQ', 'AF', 'UZ', 'KZ', 'GE', 'AM', 'AZ'];
           const isFromMajorCountry = majorCountries.includes(location.country);
+          
+          // Be stricter about countries that often have data quality issues
+          const problematicCountries = ['NG', 'CD', 'CF', 'TD', 'SO', 'SS', 'ER', 'DJ', 'KM', 'ST', 'CV', 'GW', 'GM', 'SL', 'LR', 'ML', 'BF', 'NE', 'MR', 'GN', 'SN'];
+          if (problematicCountries.includes(location.country)) {
+            // Only allow cities with states/regions (likely larger cities)
+            if (!location.state || location.name.length < 4) {
+              return false;
+            }
+          }
           
           // Filter out places that seem too obscure (very specific local names)
           const hasObscureWords = /\b(railway|station|airport|hospital|school|farm|ranch|creek|river|road|street|avenue|lane|district|ward|quarter|sector|zone|area|region|subdivision|hamlet|village|settlement|camp|base|facility|center|centre)\b/i.test(location.name);
