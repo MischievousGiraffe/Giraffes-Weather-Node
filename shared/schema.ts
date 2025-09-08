@@ -37,6 +37,25 @@ export const coordinatesSchema = z.object({
   lon: z.number(),
 });
 
+export const autocompleteQuerySchema = z.object({
+  query: z.string().min(2, "Please enter at least 2 characters"),
+});
+
+export const citySuggestionSchema = z.object({
+  name: z.string(),
+  country: z.string(),
+  state: z.string().optional(),
+  lat: z.number(),
+  lon: z.number(),
+});
+
+export const autocompleteResponseSchema = z.object({
+  suggestions: z.array(citySuggestionSchema),
+});
+
 export type WeatherData = z.infer<typeof weatherDataSchema>;
 export type LocationSearch = z.infer<typeof locationSearchSchema>;
 export type Coordinates = z.infer<typeof coordinatesSchema>;
+export type AutocompleteQuery = z.infer<typeof autocompleteQuerySchema>;
+export type CitySuggestion = z.infer<typeof citySuggestionSchema>;
+export type AutocompleteResponse = z.infer<typeof autocompleteResponseSchema>;

@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { locationSearchSchema, coordinatesSchema, type WeatherData } from "@shared/schema";
+import { locationSearchSchema, coordinatesSchema, autocompleteQuerySchema, type WeatherData, type AutocompleteResponse } from "@shared/schema";
 
 // Helper function to detect if input looks like a zipcode
 function isZipcodeFormat(input: string): boolean {
@@ -59,6 +59,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   if (!API_KEY) {
     console.warn("No OpenWeatherMap API key found. Set OPENWEATHER_API_KEY environment variable.");
   }
+
+  // Autocomplete endpoint for city suggestions
+  app.post("/api/weather/autocomplete", async (req, res) => {
+    try {
+      const { query } = autocompleteQuerySchema.parse(req.body);
+      
+      if (query.length < 2) {
+        return res.json({ suggestions: [] });
+      }
+
+      // Use OpenWeatherMap geocoding API for city suggestions
+      const geoResponse = await fetch(
+        `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=5&appid=${API_KEY}`
+      );
+      
+      if (!geoResponse.ok) {
+        console.error("Autocomplete API error:", geoResponse.statusText);
+        return res.json({ suggestions: [] });
+      }
+      
+      const geoData = await geoResponse.json();
+      
+      const suggestions: AutocompleteResponse['suggestions'] = geoData.map((location: any) => ({
+        name: location.name,
+        country: location.country,
+        state: location.state || undefined,
+        lat: location.lat,
+        lon: location.lon,
+      }));
+
+      res.json({ suggestions });
+    } catch (error) {
+      console.error("Autocomplete error:", error);
+      res.json({ suggestions: [] });
+    }
+  });
 
   // Search weather by city name or zipcode
   app.post("/api/weather/search", async (req, res) => {
