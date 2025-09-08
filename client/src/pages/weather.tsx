@@ -16,6 +16,38 @@ export default function WeatherPage() {
     queryKey: ['/api/weather', location?.type, location?.value],
     enabled: !!location,
     staleTime: 10 * 60 * 1000, // 10 minutes
+    queryFn: async () => {
+      if (!location) throw new Error("No location provided");
+      
+      if (location.type === 'search') {
+        const response = await fetch('/api/weather/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: location.value as string }),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch weather data');
+        }
+        
+        return response.json();
+      } else if (location.type === 'coords') {
+        const coords = location.value as { lat: number; lon: number };
+        const response = await fetch('/api/weather/coordinates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: coords.lat, lon: coords.lon }),
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch weather data');
+        }
+        
+        return response.json();
+      }
+      
+      throw new Error("Invalid location type");
+    },
   });
 
   const handleLocationSearch = (query: string) => {
