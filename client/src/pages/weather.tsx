@@ -73,7 +73,29 @@ export default function WeatherPage() {
         setError(null);
       },
       (error) => {
-        setError("Unable to get your location. Please search for a city instead.");
+        let errorMessage = "Unable to get your location. Please search for a city instead.";
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Location access denied. Please enable location permissions and try again, or search for a city.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = "Location information unavailable. Please search for a city instead.";
+            break;
+          case error.TIMEOUT:
+            errorMessage = "Location request timed out. Please try again or search for a city.";
+            break;
+          default:
+            errorMessage = "Unable to get your location. Please search for a city instead.";
+            break;
+        }
+        
+        setError(errorMessage);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000, // 10 seconds
+        maximumAge: 300000 // 5 minutes
       }
     );
   };
